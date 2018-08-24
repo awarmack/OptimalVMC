@@ -188,3 +188,106 @@ optvmc <- function(btm, twd, tws, pol.model){
   return(return_opt)
   
 }
+
+simulate <- function(start, mark, tws, twd, tdiff = 10){
+  #initial bearing to mark
+  init_btm <- bearingRhumb(start, mark)
+  
+  #initial true wind angle relative to mark
+  init_twa <- getTWA(btm = init_btm, twd = twd)
+  
+  #create the route
+  
+  
+  #df = default --- going right at the mark
+  route <-  data.frame(time= 0, pt = "pt1", df.lon = start$lon, df.lat = start$lat, df.btm = init_btm, df.twa = init_twa)  
+  route$pt <- as.character(route$pt)
+  route$df.btm <- init_btm
+  route$df.v <- getOptV(init_twa, vtw = tws, pol.model) #velocity at the mark
+  route$df.dtm <- distHaversine(p1 = route[1, c("df.lon", "df.lat")], p2 = mark, r = 3443.93) #distance to mark
+  route$df.dist <- 0    #distance travelled
+  
+  #create first optimal points
+  route$opt.lon <- route$df.lon
+  route$opt.lat <- route$df.lat
+  route$opt.btm <- init_btm
+  route$opt.dtm <- route$df.dtm
+  
+  
+  #calculate optimal routing
+  #initial optimal VMC from point i to get to i+1
+  opt_route <- optvmc(btm=route$opt.btm[1], twd = twd, tws = tws, pol.model = pol.model)
+  
+  #set data for info from point i to point i+1
+  route$opt.twa[1] <- opt_route$opt_twa
+  route$opt.v[1] <- opt_route$opt_bsp
+  route$opt.bear[1] <- opt_route$opt_bear
+  route$opt.dist[1] <- 0  #haven't travelled yet
+  
+  for (i in 1:80){
+    
+    #initialize next row
+    route[i+1, ] <- NA
+    
+    #point name
+    route$pt[i+1] <- paste0("pt", i+1)
+    
+    #time increment
+    route$time[i+1] <- route$time[i] + tdiff
+    
+    #get the default route for the next point
+    
+    #distance travelled
+    route$df.dist[i+1] <- route$df.v[i] * (tdiff/60) 
+    
+    #new position i + 1
+    route[i+1,c("df.lon", "df.lat")] <- destPoint(p = c(route$df.lon[i], route$df.lat[i]), 
+                                                  b = route$df.btm[i], 
+                                                  d = route$df.dist[i+1]*1852)
+    
+    #new btm
+    route$df.btm[i+1] <- bearingRhumb(route[i+1, c("df.lon", "df.lat")], mark)
+    
+    #new twa
+    route$df.twa[i+1] <- getTWA(btm = route$df.btm[i+1], twd = twd)
+    
+    #new distance to mark
+    route$df.dtm[i+1] <- distHaversine(p1 = route[i+1, c("df.lon", "df.lat")], p2 = mark, r = 3443.93)
+    
+    #new velocity towards mark
+    route$df.v <- getOptV(route$df.twa[i+1], vtw = tws, pol.model)
+    
+    #Optimal Route  
+    
+    #distance traveled from i to i+1
+    route$opt.dist[i+1] <- route$opt.v[i] * (tdiff/60)
+    
+    #find new point
+    route[i+1, c("opt.lon", "opt.lat")] <- destPoint(p=route[i, c("opt.lon", "opt.lat")], 
+                                                     b=route$opt.bear[i], 
+                                                     d=route$opt.dist[i+1]* 1852)
+    
+    
+    #new btm
+    route$opt.btm[i+1] <- bearingRhumb(route[i+1, c("opt.lon", "opt.lat")], mark)
+    
+    #how far are from the mark
+    route$opt.dtm[i+1] <- distHaversine(p1 = route[i+1, c("opt.lon", "opt.lat")], p2 = mark, r = 3443.93)
+    
+    
+    #get new route from i+1 to i+2
+    opt_route <- optvmc(btm=route$opt.btm[i+1], twd = twd, tws = tws, pol.model = pol.model)
+    
+    
+    route$opt.twa[i+1] <- opt_route$opt_twa
+    route$opt.v[i+1] <- opt_route$opt_bsp
+    route$opt.bear[i+1] <- opt_route$opt_bear
+    
+    route$ahead <- route$df.dtm - route$opt.dtm 
+    
+  }
+  
+return(route)
+}
+
+
